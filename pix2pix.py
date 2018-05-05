@@ -13,6 +13,10 @@ import collections
 import math
 import time
 
+from tensorflow.contrib import slim
+from tensorflow.contrib.slim.python.slim.nets import resnet_v2
+inputs = tf.placeholder(tf.float32, shape=(None, 256, 256, 3))
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
@@ -52,7 +56,7 @@ EPS = 1e-12
 CROP_SIZE = 256
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
-Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
+Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_resnet, gen_grads_and_vars, train")
 
 
 def preprocess(image):
@@ -441,6 +445,13 @@ def create_model(inputs, targets):
             # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
             predict_fake = create_discriminator(inputs, outputs)
 
+    with tf.name_scope("target_resnet"):
+        with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+            _, targets_end_points = resnet_v2.resnet_v2_101(targets, 1001, is_training=False)
+    with tf.name_scope("output_resnet"):
+        with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+            _, outputs_end_points = resnet_v2.resnet_v2_101(outputs, 1001, is_training=False, reuse=True)
+
     with tf.name_scope("discriminator_loss"):
         # minimizing -tf.log will try to get inputs to 1
         # predict_real => 1
@@ -452,7 +463,10 @@ def create_model(inputs, targets):
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
         gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
+        target_resnet_conv = targets_end_points["resnet_v2_101/block3/unit_10/bottleneck_v2/conv2"]
+        outputs_resnet_conv = outputs_end_points["resnet_v2_101/block3/unit_10/bottleneck_v2/conv2"]
+        gen_loss_resnet = tf.reduce_mean(tf.abs(target_resnet_conv - outputs_resnet_conv))
+        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight + gen_loss_resnet * 0.1  # TODO add resnet loss to args
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -468,7 +482,7 @@ def create_model(inputs, targets):
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
+    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_resnet])
 
     global_step = tf.train.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step+1)
@@ -480,6 +494,7 @@ def create_model(inputs, targets):
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
+        gen_loss_resnet=ema.average(gen_loss_resnet),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
         train=tf.group(update_losses, incr_global_step, gen_train),
@@ -608,11 +623,13 @@ def main():
         tf.add_to_collection("outputs", json.dumps(outputs))
 
         init_op = tf.global_variables_initializer()
+        init_resnet_op = slim.assign_from_checkpoint("resnet_v2_101.ckpt", slim.get_model_variables())
         restore_saver = tf.train.Saver()
         export_saver = tf.train.Saver()
 
         with tf.Session() as sess:
             sess.run(init_op)
+            sess.run(init_resnet_op)
             print("loading model from checkpoint")
             checkpoint = tf.train.latest_checkpoint(a.checkpoint)
             restore_saver.restore(sess, checkpoint)
@@ -695,6 +712,7 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss_resnet", model.gen_loss_resnet)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -710,6 +728,7 @@ def main():
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
     with sv.managed_session() as sess:
+        # sess.run(slim.assign_from_checkpoint("resnet_v2_101.ckpt", slim.get_model_variables()))
         print("parameter_count =", sess.run(parameter_count))
 
         if a.checkpoint is not None:
@@ -759,6 +778,7 @@ def main():
                     fetches["discrim_loss"] = model.discrim_loss
                     fetches["gen_loss_GAN"] = model.gen_loss_GAN
                     fetches["gen_loss_L1"] = model.gen_loss_L1
+                    fetches["gen_loss_resnet"] = model.gen_loss_resnet
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -791,6 +811,7 @@ def main():
                     print("discrim_loss", results["discrim_loss"])
                     print("gen_loss_GAN", results["gen_loss_GAN"])
                     print("gen_loss_L1", results["gen_loss_L1"])
+                    print("gen_loss_resnet", results["gen_loss_resnet"])
 
                 if should(a.save_freq):
                     print("saving model")

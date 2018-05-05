@@ -12,6 +12,15 @@ Tensorflow implementation of pix2pix.  Learns a mapping from input images to out
 
 This port is based directly on the torch implementation, and not on an existing Tensorflow implementation.  It is meant to be a faithful implementation of the original work and so does not add anything.  The processing speed on a GPU with cuDNN was equivalent to the Torch implementation in testing.
 
+## Differences
+The rest of this readme is hardly actual since I updated the code. Refer to this section as being the ground truth and all other sections as reference.
+~Serhii
+
+The the list of major changes:
+- Tensorflow 1.8
+- [Resnet v2 101 model](http://download.tensorflow.org/models/resnet_v2_101_2017_04_14.tar.gz) taken from [this page](https://github.com/tensorflow/models/tree/master/research/slim#Pretrained)
+
+
 ## Setup
 
 ### Prerequisites
@@ -44,24 +53,6 @@ python pix2pix.py \
 ```
 
 The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets.
-
-If you have Docker installed, you can use the provided Docker image to run pix2pix without installing the correct version of Tensorflow:
-
-```sh
-# train the model
-python tools/dockrun.py python pix2pix.py \
-      --mode train \
-      --output_dir facades_train \
-      --max_epochs 200 \
-      --input_dir facades/train \
-      --which_direction BtoA
-# test the model
-python tools/dockrun.py python pix2pix.py \
-      --mode test \
-      --output_dir facades_test \
-      --input_dir facades/val \
-      --checkpoint facades_train
-```
 
 ## Datasets and Trained Models
 
@@ -238,13 +229,6 @@ Comparison on facades dataset:
 | <img src="docs/5-inputs.png" width="256px"> | <img src="docs/5-tensorflow.png" width="256px"> | <img src="docs/5-torch.jpg" width="256px"> | <img src="docs/5-targets.png" width="256px"> |
 | <img src="docs/51-inputs.png" width="256px"> | <img src="docs/51-tensorflow.png" width="256px"> | <img src="docs/51-torch.jpg" width="256px"> | <img src="docs/51-targets.png" width="256px"> |
 | <img src="docs/95-inputs.png" width="256px"> | <img src="docs/95-tensorflow.png" width="256px"> | <img src="docs/95-torch.jpg" width="256px"> | <img src="docs/95-targets.png" width="256px"> |
-
-## Unimplemented Features
-
-The following models have not been implemented:
-- defineG_encoder_decoder
-- defineG_unet_128
-- defineD_pixelGAN
 
 ## Citation
 If you use this code for your research, please cite the paper this code is based on: <a href="https://arxiv.org/pdf/1611.07004v1.pdf">Image-to-Image Translation Using Conditional Adversarial Networks</a>:
