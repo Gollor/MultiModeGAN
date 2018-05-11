@@ -17,6 +17,8 @@ from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets import resnet_v2
 inputs = tf.placeholder(tf.float32, shape=(None, 256, 256, 3))
 
+resnet_loss_layer = "resnet_v2_101/block3/unit_10/bottleneck_v2/conv2"
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
@@ -56,7 +58,7 @@ EPS = 1e-12
 CROP_SIZE = 256
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
-Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_resnet, gen_grads_and_vars, train")
+Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_error_resnet, gen_loss_GAN, gen_loss_L1, gen_loss_resnet, gen_grads_and_vars, train")
 
 
 def preprocess(image):
@@ -463,8 +465,9 @@ def create_model(inputs, targets):
         # abs(targets - outputs) => 0
         gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
         gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-        target_resnet_conv = targets_end_points["resnet_v2_101/block3/unit_10/bottleneck_v2/conv2"]
-        outputs_resnet_conv = outputs_end_points["resnet_v2_101/block3/unit_10/bottleneck_v2/conv2"]
+        target_resnet_conv = targets_end_points[resnet_loss_layer]
+        outputs_resnet_conv = outputs_end_points[resnet_loss_layer]
+        gen_error_resnet = tf.abs(target_resnet_conv - outputs_resnet_conv)
         gen_loss_resnet = tf.reduce_mean(tf.abs(target_resnet_conv - outputs_resnet_conv))
         gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight + gen_loss_resnet * 0.1  # TODO add resnet loss to args
 
@@ -494,6 +497,7 @@ def create_model(inputs, targets):
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
+        gen_error_resnet=gen_error_resnet,
         gen_loss_resnet=ema.average(gen_loss_resnet),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
@@ -519,6 +523,7 @@ def save_images(fetches, step=None):
             contents = fetches[kind][i]
             with open(out_path, "wb") as f:
                 f.write(contents)
+        fileset['resnet_error'] = fetches['resnet_error']
         filesets.append(fileset)
     return filesets
 
@@ -629,10 +634,10 @@ def main():
 
         with tf.Session() as sess:
             sess.run(init_op)
-            sess.run(init_resnet_op)
             print("loading model from checkpoint")
             checkpoint = tf.train.latest_checkpoint(a.checkpoint)
             restore_saver.restore(sess, checkpoint)
+            sess.run(init_resnet_op)
             print("exporting model")
             export_saver.export_meta_graph(filename=os.path.join(a.output_dir, "export.meta"))
             export_saver.save(sess, os.path.join(a.output_dir, "export"), write_meta_graph=False)
@@ -691,6 +696,7 @@ def main():
             "inputs": tf.map_fn(tf.image.encode_png, converted_inputs, dtype=tf.string, name="input_pngs"),
             "targets": tf.map_fn(tf.image.encode_png, converted_targets, dtype=tf.string, name="target_pngs"),
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name="output_pngs"),
+            "resnet_error": model.gen_error_resnet
         }
 
     # summaries
@@ -743,6 +749,7 @@ def main():
             max_steps = a.max_steps
 
         if a.mode == "test":
+            errors_db = {}
             # testing
             # at most, process the test data once
             start = time.time()
@@ -751,10 +758,16 @@ def main():
                 results = sess.run(display_fetches)
                 filesets = save_images(results)
                 for i, f in enumerate(filesets):
-                    print("evaluated image", f["name"])
+                    error = np.sum(f["resnet_error"])
+                    print("evaluated image", f["name"], "error:", error)
+                    errors_db[str(f["name"])] = int(error)
                 index_path = append_index(filesets)
             print("wrote index at", index_path)
             print("rate", (time.time() - start) / max_steps)
+            f = open("dataset_eval.json", "w")
+            f.write(json.dumps(errors_db))
+            f.close()
+            print('Saved errors to "dataset_eval.json"')
         else:
             # training
             start = time.time()
