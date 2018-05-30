@@ -1,58 +1,31 @@
-# pix2pix-tensorflow
+# MultiModeGAN
 
-Based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
-
-[Article about this implemention](https://affinelayer.com/pix2pix/)
-
-[Interactive Demo](https://affinelayer.com/pixsrv/)
-
-Tensorflow implementation of pix2pix.  Learns a mapping from input images to output images, like these examples from the original paper:
-
-<img src="docs/examples.jpg" width="900px"/>
-
-This port is based directly on the torch implementation, and not on an existing Tensorflow implementation.  It is meant to be a faithful implementation of the original work and so does not add anything.  The processing speed on a GPU with cuDNN was equivalent to the Torch implementation in testing.
-
-## Differences
-The rest of this readme is hardly actual since I updated the code. Refer to this section as being the ground truth and all other sections as reference.
-~Serhii
-
-The the list of major changes:
-- Tensorflow 1.8
-- [Resnet v2 101 model](http://download.tensorflow.org/models/resnet_v2_101_2017_04_14.tar.gz) taken from [this page](https://github.com/tensorflow/models/tree/master/research/slim#Pretrained)
-
+This is the code for work-in-progress research paper.
 
 ## Setup
 
 ### Prerequisites
-- Tensorflow 1.4.1
+
+- Python3.6
+- Tensorflow 1.8
+- [Resnet v2 101 model](http://download.tensorflow.org/models/resnet_v2_101_2017_04_14.tar.gz) taken from [this page](https://github.com/tensorflow/models/tree/master/research/slim#Pretrained)
 
 ### Recommended
-- Linux with Tensorflow GPU edition + cuDNN
+- Linux with GPU, CUDA and CuDNN installed.
 
-### Getting Started
+## Running
 
-```sh
-# clone this repo
-git clone https://github.com/affinelayer/pix2pix-tensorflow.git
-cd pix2pix-tensorflow
-# download the CMP Facades dataset (generated from http://cmp.felk.cvut.cz/~tylecr1/facade/)
-python tools/download-dataset.py facades
-# train the model (this may take 1-8 hours depending on GPU, on CPU you will be waiting for a bit)
-python pix2pix.py \
-  --mode train \
-  --output_dir facades_train \
-  --max_epochs 200 \
-  --input_dir facades/train \
-  --which_direction BtoA
-# test the model
-python pix2pix.py \
-  --mode test \
-  --output_dir facades_test \
-  --input_dir facades/val \
-  --checkpoint facades_train
-```
+After you downloaded the dataset, you can run the training with the next command:
 
-The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets.
+`python3.6 pix2pix.py --mode train --output_dir train_checkpoint/ --max_epochs 200 --input_dir train/ --which_direction AtoB`
+
+You can test the model with the next command:
+
+`python3.6 pix2pix.py --mode test --checkpoint train_checkpoint/ --output_dir train_output --input_dir val`
+
+The test run will produce `dataset_eval.json` file. It will contain the names of all samples and the respective ResNet loss.
+
+You can see more examples in `train_script.sh` file, which contains the list of commands to repeat the experiment. 
 
 ## Datasets and Trained Models
 
@@ -64,7 +37,7 @@ For example:
 
 <img src="docs/418.png" width="256px"/>
 
-Some datasets have been made available by the authors of the pix2pix paper.  To download those datasets, use the included script `tools/download-dataset.py`.  There are also links to pre-trained models alongside each dataset, note that these pre-trained models require the current version of pix2pix.py:
+Some datasets have been made available by the authors of the pix2pix paper.  To download those datasets, use the included script `tools/download-dataset.py`.
 
 | dataset | example |
 | --- | --- |
@@ -76,171 +49,17 @@ Some datasets have been made available by the authors of the pix2pix paper.  To 
 
 The `facades` dataset is the smallest and easiest to get started with.
 
-### Creating your own dataset
-
-#### Example: creating images with blank centers for [inpainting](https://people.eecs.berkeley.edu/~pathak/context_encoder/)
-
-<img src="docs/combine.png" width="900px"/>
-
-```sh
-# Resize source images
-python tools/process.py \
-  --input_dir photos/original \
-  --operation resize \
-  --output_dir photos/resized
-# Create images with blank centers
-python tools/process.py \
-  --input_dir photos/resized \
-  --operation blank \
-  --output_dir photos/blank
-# Combine resized images with blanked images
-python tools/process.py \
-  --input_dir photos/resized \
-  --b_dir photos/blank \
-  --operation combine \
-  --output_dir photos/combined
-# Split into train/val set
-python tools/split.py \
-  --dir photos/combined
-```
-
-The folder `photos/combined` will now have `train` and `val` subfolders that you can use for training and testing.
-
-#### Creating image pairs from existing images
-
-If you have two directories `a` and `b`, with corresponding images (same name, same dimensions, different data) you can combine them with `process.py`:
-
-```sh
-python tools/process.py \
-  --input_dir a \
-  --b_dir b \
-  --operation combine \
-  --output_dir c
-```
-
-This puts the images in a side-by-side combined image that `pix2pix.py` expects.
-
-#### Colorization
-
-For colorization, your images should ideally all be the same aspect ratio.  You can resize and crop them with the resize command:
-```sh
-python tools/process.py \
-  --input_dir photos/original \
-  --operation resize \
-  --output_dir photos/resized
-```
-
-No other processing is required, the colorization mode (see Training section below) uses single images instead of image pairs.
-
-## Training
-
-### Image Pairs
-
-For normal training with image pairs, you need to specify which directory contains the training images, and which direction to train on.  The direction options are `AtoB` or `BtoA`
-```sh
-python pix2pix.py \
-  --mode train \
-  --output_dir facades_train \
-  --max_epochs 200 \
-  --input_dir facades/train \
-  --which_direction BtoA
-```
-
-### Colorization
-
-`pix2pix.py` includes special code to handle colorization with single images instead of pairs, using that looks like this:
-
-```sh
-python pix2pix.py \
-  --mode train \
-  --output_dir photos_train \
-  --max_epochs 200 \
-  --input_dir photos/train \
-  --lab_colorization
-```
-
-In this mode, image A is the black and white image (lightness only), and image B contains the color channels of that image (no lightness information).
-
 ### Tips
 
 You can look at the loss and computation graph using tensorboard:
 ```sh
-tensorboard --logdir=facades_train
+tensorboard --logdir=train_checkpoint
 ```
 
 <img src="docs/tensorboard-scalar.png" width="250px"/> <img src="docs/tensorboard-image.png" width="250px"/> <img src="docs/tensorboard-graph.png" width="250px"/>
 
 If you wish to write in-progress pictures as the network is training, use `--display_freq 50`.  This will update `facades_train/index.html` every 50 steps with the current training inputs and outputs.
 
-## Testing
-
-Testing is done with `--mode test`.  You should specify the checkpoint to use with `--checkpoint`, this should point to the `output_dir` that you created previously with `--mode train`:
-
-```sh
-python pix2pix.py \
-  --mode test \
-  --output_dir facades_test \
-  --input_dir facades/val \
-  --checkpoint facades_train
-```
-
-The testing mode will load some of the configuration options from the checkpoint provided so you do not need to specify `which_direction` for instance.
-
-The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets:
-
-<img src="docs/test-html.png" width="300px"/>
-
-## Code Validation
-
-Validation of the code was performed on a Linux machine with a ~1.3 TFLOPS Nvidia GTX 750 Ti GPU and an Azure NC6 instance with a K80 GPU.
-
-```sh
-git clone https://github.com/affinelayer/pix2pix-tensorflow.git
-cd pix2pix-tensorflow
-python tools/download-dataset.py facades
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
-      --mode train \
-      --output_dir facades_train \
-      --max_epochs 200 \
-      --input_dir facades/train \
-      --which_direction BtoA
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
-      --mode test \
-      --output_dir facades_test \
-      --input_dir facades/val \
-      --checkpoint facades_train
-```
-
-Comparison on facades dataset:
-
-| Input | Tensorflow | Torch | Target |
-| --- | --- | --- | --- |
-| <img src="docs/1-inputs.png" width="256px"> | <img src="docs/1-tensorflow.png" width="256px"> | <img src="docs/1-torch.jpg" width="256px"> | <img src="docs/1-targets.png" width="256px"> |
-| <img src="docs/5-inputs.png" width="256px"> | <img src="docs/5-tensorflow.png" width="256px"> | <img src="docs/5-torch.jpg" width="256px"> | <img src="docs/5-targets.png" width="256px"> |
-| <img src="docs/51-inputs.png" width="256px"> | <img src="docs/51-tensorflow.png" width="256px"> | <img src="docs/51-torch.jpg" width="256px"> | <img src="docs/51-targets.png" width="256px"> |
-| <img src="docs/95-inputs.png" width="256px"> | <img src="docs/95-tensorflow.png" width="256px"> | <img src="docs/95-torch.jpg" width="256px"> | <img src="docs/95-targets.png" width="256px"> |
-
-## Citation
-If you use this code for your research, please cite the paper this code is based on: <a href="https://arxiv.org/pdf/1611.07004v1.pdf">Image-to-Image Translation Using Conditional Adversarial Networks</a>:
-
-```
-@article{pix2pix2016,
-  title={Image-to-Image Translation with Conditional Adversarial Networks},
-  author={Isola, Phillip and Zhu, Jun-Yan and Zhou, Tinghui and Efros, Alexei A},
-  journal={arxiv},
-  year={2016}
-}
-```
-
 ## Acknowledgments
-This is a port of [pix2pix](https://github.com/phillipi/pix2pix) from Torch to Tensorflow.  It also contains colorspace conversion code ported from Torch.  Thanks to the Tensorflow team for making such a quality library!  And special thanks to Phillip Isola for answering my questions about the pix2pix code.
+This model is based on <a href="https://arxiv.org/pdf/1611.07004v1.pdf">Image-to-Image Translation Using Conditional Adversarial Networks</a>
+
