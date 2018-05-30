@@ -3,7 +3,7 @@
 This is the code for work-in-progress research paper.
 This work modifies pix2pix model and adds new loss as well as the new way to train it. Here is the comparison of our model (third line) with the original pix2pix (second line):
 
-<img src="docs/comparison.png" width="256px"/>
+<img src="docs/comparison.png" width="1024px"/>
 
 ## Setup
 
